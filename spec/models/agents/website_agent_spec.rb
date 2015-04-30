@@ -152,6 +152,38 @@ describe Agents::WebsiteAgent do
       end
     end
 
+    describe 'unzipping' do
+      it 'should unzip with unzip option' do
+        json = {
+          'response' => {
+            'version' => 2,
+            'title' => "hello!"
+          }
+        }
+        zipped = ActiveSupport::Gzip.compress(json.to_json)
+        stub_request(:any, /gzip/).to_return(:body => zipped, :status => 200)
+        site = {
+          'name' => "Some JSON Response",
+          'expected_update_period_in_days' => "2",
+          'type' => "json",
+          'url' => "http://gzip.com",
+          'mode' => 'on_change',
+          'extract' => {
+            'version' => { 'path' => 'response.version' },
+          },
+          'unzip' => 'gzip',
+        }
+        checker = Agents::WebsiteAgent.new(:name => "Weather Site", :options => site)
+        checker.user = users(:bob)
+        checker.save!
+
+        checker.check
+        event = Event.last
+        puts event.payload
+        expect(event.payload['version']).to eq(2)
+      end
+    end
+
     describe 'encoding' do
       it 'should be forced with force_encoding option' do
         huginn = "\u{601d}\u{8003}"
@@ -379,13 +411,12 @@ describe Agents::WebsiteAgent do
             checker.check
           }.to change { Event.count }.by(2)
 
-          event = Event.all[-1]
-          expect(event.payload['version']).to eq(2.5)
-          expect(event.payload['title']).to eq("second")
+          (event2, event1) = Event.last(2)
+          expect(event1.payload['version']).to eq(2.5)
+          expect(event1.payload['title']).to eq("second")
 
-          event = Event.all[-2]
-          expect(event.payload['version']).to eq(2)
-          expect(event.payload['title']).to eq("first")
+          expect(event2.payload['version']).to eq(2)
+          expect(event2.payload['title']).to eq("first")
         end
 
         it "stores the whole object if :extract is not specified" do

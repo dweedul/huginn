@@ -347,4 +347,51 @@ describe AgentsController do
       end
     end
   end
+
+  describe "POST dry_run" do
+    it "does not actually create any agent, event or log" do
+      sign_in users(:bob)
+      expect {
+        post :dry_run, agent: valid_attributes()
+      }.not_to change {
+        [users(:bob).agents.count, users(:bob).events.count, users(:bob).logs.count]
+      }
+      json = JSON.parse(response.body)
+      expect(json['log']).to be_a(String)
+      expect(json['events']).to be_a(String)
+      expect(JSON.parse(json['events']).map(&:class)).to eq([Hash])
+      expect(json['memory']).to be_a(String)
+      expect(JSON.parse(json['memory'])).to be_a(Hash)
+    end
+
+    it "does not actually update an agent" do
+      sign_in users(:bob)
+      agent = agents(:bob_weather_agent)
+      expect {
+        post :dry_run, id: agents(:bob_website_agent), agent: valid_attributes(name: 'New Name')
+      }.not_to change {
+        [users(:bob).agents.count, users(:bob).events.count, users(:bob).logs.count, agent.name, agent.updated_at]
+      }
+    end
+  end
+
+  describe "DELETE memory" do
+    it "clears memory of the agent" do
+      agent = agents(:bob_website_agent)
+      agent.update!(memory: { "test" => 42 })
+      sign_in users(:bob)
+      delete :destroy_memory, id: agent.to_param
+      expect(agent.reload.memory).to eq({})
+    end
+
+    it "does not clear memory of an agent not owned by the current user" do
+      agent = agents(:jane_website_agent)
+      agent.update!(memory: { "test" => 42 })
+      sign_in users(:bob)
+      expect {
+        delete :destroy_memory, id: agent.to_param
+      }.to raise_error(ActiveRecord::RecordNotFound)
+      expect(agent.reload.memory).to eq({ "test" => 42})
+    end
+  end
 end

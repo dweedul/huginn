@@ -5,7 +5,7 @@ Devise.setup do |config|
   # Configure the e-mail address which will be shown in Devise::Mailer,
   # note that it will be overwritten if you use your own mailer class
   # with default "from" parameter.
-  config.mailer_sender = 'please-change-me-at-config-initializers-devise@example.com'
+  config.mailer_sender = ENV['EMAIL_FROM_ADDRESS'].presence || 'you@example.com'
 
   # Configure the class responsible to send e-mails.
   # config.mailer = 'Devise::Mailer'
@@ -261,6 +261,12 @@ Devise.setup do |config|
      (key = ENV["DROPBOX_OAUTH_KEY"]).present? &&
      (secret = ENV["DROPBOX_OAUTH_SECRET"]).present?
     config.omniauth :dropbox, key, secret
+  end
+
+  if defined?(OmniAuth::Strategies::Wunderlist) &&
+     (key = ENV["WUNDERLIST_OAUTH_KEY"]).present? &&
+     (secret = ENV["WUNDERLIST_OAUTH_SECRET"]).present?
+    config.omniauth :wunderlist, key, secret
   end
 
   # ==> Warden configuration
