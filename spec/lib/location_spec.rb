@@ -1,10 +1,10 @@
-require 'spec_helper'
+require 'rails_helper'
 
 describe Location do
   let(:location) {
     Location.new(
-      lat: BigDecimal.new('2.0'),
-      lng: BigDecimal.new('3.0'),
+      lat: BigDecimal('2.0'),
+      lng: BigDecimal('3.0'),
       radius: 300,
       speed: 2,
       course: 30)
@@ -30,14 +30,14 @@ describe Location do
     expect(location['lat']).to eq 2.0
   end
 
-  it "has a convencience accessor for combined latitude and longitude" do
+  it "has a convenience accessor for combined latitude and longitude" do
     expect(location.latlng).to eq "2.0,3.0"
   end
 
   it "does not allow hash-style assignment" do
     expect {
       location[:lat] = 2.0
-    }.to raise_error
+    }.to raise_error(NoMethodError)
   end
 
   it "ignores invalid values" do

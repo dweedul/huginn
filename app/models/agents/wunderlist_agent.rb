@@ -2,19 +2,20 @@ module Agents
   class WunderlistAgent < Agent
     include FormConfigurable
     include Oauthable
+    include WebRequestConcern
     valid_oauth_providers :wunderlist
 
     cannot_be_scheduled!
+    no_bulk_receive!
 
     gem_dependency_check { Devise.omniauth_providers.include?(:wunderlist) }
 
     description <<-MD
+      The WunderlistAgent creates new Wunderlist tasks based on the incoming event.
+
       #{'## Include the `omniauth-wunderlist` gem in your `Gemfile` and set `WUNDERLIST_OAUTH_KEY` and `WUNDERLIST_OAUTH_SECRET` in your environment to use this Agent' if dependencies_missing?}
 
-      The WunderlistAgent creates new new tasks based on the incoming event.
-
       To be able to use this Agent you need to authenticate with Wunderlist in the [Services](/services) section first.
-
     MD
 
     def default_options
@@ -53,7 +54,9 @@ module Agents
         end
       end
     end
-  private
+
+    private
+
     def request_guard(&blk)
       response = yield
       error("Error during http request: #{response.body}") if response.code > 400
@@ -70,7 +73,7 @@ module Agents
 
     def request_options
       {:headers => {'Content-Type' => 'application/json',
-                    'User-Agent' => 'Huginn (https://github.com/cantino/huginn)',
+                    'User-Agent' => user_agent,
                     'X-Access-Token' => service.token,
                     'X-Client-ID' => ENV["WUNDERLIST_OAUTH_KEY"] }}
     end

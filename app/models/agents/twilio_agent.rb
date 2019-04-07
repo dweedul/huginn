@@ -4,12 +4,14 @@ module Agents
   class TwilioAgent < Agent
     cannot_be_scheduled!
     cannot_create_events!
+    no_bulk_receive!
 
     gem_dependency_check { defined?(Twilio) }
 
     description <<-MD
+      The Twilio Agent receives and collects events and sends them via text message (up to 160 characters) or gives you a call when scheduled.
+
       #{'## Include `twilio-ruby` in your Gemfile to use this Agent!' if dependencies_missing?}
-      The TwilioAgent receives and collects events and sends them via text message (up to 160 characters) or gives you a call when scheduled.
 
       It is assumed that events have a `message`, `text`, or `sms` key, the value of which is sent as the content of the text message/call. You can use the EventFormattingAgent if your event does not provide these keys.
 
@@ -42,16 +44,16 @@ module Agents
 
     def receive(incoming_events)
       memory['pending_calls'] ||= {}
-      incoming_events.each do |event|
+      interpolate_with_each(incoming_events) do |event|
         message = (event.payload['message'].presence || event.payload['text'].presence || event.payload['sms'].presence).to_s
         if message.present?
-          if boolify(interpolated(event)['receive_call'])
+          if boolify(interpolated['receive_call'])
             secret = SecureRandom.hex 3
             memory['pending_calls'][secret] = message
             make_call secret
           end
 
-          if boolify(interpolated(event)['receive_text'])
+          if boolify(interpolated['receive_text'])
             message = message.slice 0..160
             send_message message
           end
@@ -64,7 +66,7 @@ module Agents
     end
 
     def send_message(message)
-      client.account.sms.messages.create :from => interpolated['sender_cell'],
+      client.account.messages.create :from => interpolated['sender_cell'],
                                          :to => interpolated['receiver_cell'],
                                          :body => message
     end

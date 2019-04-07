@@ -5,12 +5,13 @@ module Agents
     cannot_be_scheduled!
 
     description <<-MD
+      The Twitter Publish Agent publishes tweets from the events it receives.
+
       #{twitter_dependencies_missing if dependencies_missing?}
-      The TwitterPublishAgent publishes tweets from the events it receives.
 
       To be able to use this Agent you need to authenticate with Twitter in the [Services](/services) section first.
 
-      You must also specify a `message` parameter, you can use [Liquid](https://github.com/cantino/huginn/wiki/Formatting-Events-using-Liquid) to format the message.
+      You must also specify a `message` parameter, you can use [Liquid](https://github.com/huginn/huginn/wiki/Formatting-Events-using-Liquid) to format the message.
 
       Set `expected_update_period_in_days` to the maximum amount of time that you'd expect to pass between Events being created by this Agent.
     MD

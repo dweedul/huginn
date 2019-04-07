@@ -1,4 +1,4 @@
-require 'spec_helper'
+require 'rails_helper'
 
 describe Agents::TriggerAgent do
   before do
@@ -58,12 +58,41 @@ describe Agents::TriggerAgent do
       expect(@checker).not_to be_valid
     end
 
+    it "validates that 'must_match' is a positive integer, not greater than the number of rules, if provided" do
+      @checker.options['must_match'] = '1'
+      expect(@checker).to be_valid
+
+      @checker.options['must_match'] = '0'
+      expect(@checker).not_to be_valid
+
+      @checker.options['must_match'] = 'wrong'
+      expect(@checker).not_to be_valid
+
+      @checker.options['must_match'] = ''
+      expect(@checker).to be_valid
+
+      @checker.options.delete('must_match')
+      expect(@checker).to be_valid
+
+      @checker.options['must_match'] = '2'
+      expect(@checker).not_to be_valid
+      expect(@checker.errors[:base].first).to match(/equal to or less than the number of rules/)
+    end
+
     it "should validate the three fields in each rule" do
       @checker.options['rules'] << { 'path' => "foo", 'type' => "fake", 'value' => "6" }
       expect(@checker).not_to be_valid
       @checker.options['rules'].last['type'] = "field>=value"
       expect(@checker).to be_valid
       @checker.options['rules'].last.delete('value')
+      expect(@checker).not_to be_valid
+    end
+
+    it "should validate non-hash rules" do
+      @checker.options['rules'] << "{% if status == 'ok' %}true{% endif %}"
+      expect(@checker).to be_valid
+
+      @checker.options['rules'] << []
       expect(@checker).not_to be_valid
     end
   end
@@ -249,6 +278,28 @@ describe Agents::TriggerAgent do
       }.to change { Event.count }.by(1)
     end
 
+    it "handles array of `not in` comparisons" do
+      @event.payload['foo']['bar']['baz'] = "hello world"
+      @checker.options['rules'].first['type'] = "not in"
+      @checker.options['rules'].first['value'] = ["hello world", "hello world"]
+
+      expect {
+        @checker.receive([@event])
+      }.not_to change { Event.count }
+
+      @checker.options['rules'].first['value'] = ["hello there", "hello world"]
+
+      expect {
+        @checker.receive([@event])
+      }.not_to change { Event.count }
+
+      @checker.options['rules'].first['value'] = ["hello there", "hello here"]
+
+      expect {
+        @checker.receive([@event])
+      }.to change { Event.count }.by(1)
+    end
+
     it "does fine without dots in the path" do
       @event.payload = { 'hello' => "world" }
       @checker.options['rules'].first['type'] = "field==value"
@@ -283,23 +334,81 @@ describe Agents::TriggerAgent do
       }.to change { Event.count }.by(2)
     end
 
-    it "handles ANDing rules together" do
-      @checker.options['rules'] << {
-        'type' => "field>=value",
-        'value' => "4",
-        'path' => "foo.bing"
-      }
-
-      @event.payload['foo']["bing"] = "5"
-
+    it "handles Liquid rules" do
+      event1 = Event.create!(
+        agent: agents(:bob_rain_notifier_agent),
+        payload: { 'hello' => 'world1', 'created_at' => '2019-03-27T08:54:12+09:00' }
+      )
+      event2 = Event.create!(
+        agent: agents(:bob_rain_notifier_agent),
+        payload: { 'hello' => 'world2', 'created_at' => '2019-03-27T09:17:01+09:00' }
+      )
+      @checker.options['message'] = '{{hello}}'
+      @checker.options['rules'] = [
+        "{% assign value = created_at | date: '%s' | plus: 0 %}{% assign threshold = 'now' | date: '%s' | minus: 86400 %}{% if value > threshold %}true{% endif %}"
+      ]
       expect {
-        @checker.receive([@event])
+        travel_to(Time.parse('2019-03-28T00:00:00+00:00')) {
+          @checker.receive([event1, event2])
+        }
       }.to change { Event.count }.by(1)
 
-      @checker.options['rules'].last['value'] = 6
-      expect {
-        @checker.receive([@event])
-      }.not_to change { Event.count }
+      expect(Event.last.payload['message']).to eq("world2")
+    end
+
+    describe "with multiple rules" do
+      before do
+        @checker.options['rules'] << {
+          'type' => "field>=value",
+          'value' => "4",
+          'path' => "foo.bing"
+        }
+      end
+
+      it "handles ANDing rules together" do
+        @event.payload['foo']["bing"] = "5"
+
+        expect {
+          @checker.receive([@event])
+        }.to change { Event.count }.by(1)
+
+        @event.payload['foo']["bing"] = "2"
+
+        expect {
+          @checker.receive([@event])
+        }.not_to change { Event.count }
+      end
+
+      it "can accept a partial rule set match when 'must_match' is present and less than the total number of rules" do
+        @checker.options['must_match'] = "1"
+
+        @event.payload['foo']["bing"] = "5" # 5 > 4
+
+        expect {
+          @checker.receive([@event])
+        }.to change { Event.count }.by(1)
+
+        @event.payload['foo']["bing"] = "2" # 2 !> 4
+
+        expect {
+          @checker.receive([@event])
+        }.to change { Event.count }         # but the first one matches
+
+
+        @checker.options['must_match'] = "2"
+
+        @event.payload['foo']["bing"] = "5" # 5 > 4
+
+        expect {
+          @checker.receive([@event])
+        }.to change { Event.count }.by(1)
+
+        @event.payload['foo']["bing"] = "2" # 2 !> 4
+
+        expect {
+          @checker.receive([@event])
+        }.not_to change { Event.count }     # only 1 matches, we needed 2
+      end
     end
 
     describe "when 'keep_event' is true" do

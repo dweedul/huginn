@@ -1,4 +1,4 @@
-require 'spec_helper'
+require 'rails_helper'
 require 'models/concerns/oauthable'
 
 describe Agents::WunderlistAgent do
@@ -39,7 +39,7 @@ describe Agents::WunderlistAgent do
   end
 
   it "should generate the request_options" do
-    expect(@checker.send(:request_options)).to eq({:headers=>{"Content-Type"=>"application/json", "User-Agent"=>"Huginn (https://github.com/cantino/huginn)", "X-Access-Token"=>"1234token", "X-Client-ID"=>"wunderoauthkey"}})
+    expect(@checker.send(:request_options)).to eq({:headers=>{"Content-Type"=>"application/json", "User-Agent"=>"Huginn - https://github.com/huginn/huginn", "X-Access-Token"=>"1234token", "X-Client-ID"=>"wunderoauthkey"}})
   end
 
   describe "#complete_list_id" do
@@ -54,8 +54,9 @@ describe Agents::WunderlistAgent do
 
   describe "#receive" do
     it "send a message to the hipchat" do
-      stub_request(:post, 'https://a.wunderlist.com/api/v1/tasks').with { |request| request.body == 'abc'}
+      stub_request(:post, 'https://a.wunderlist.com/api/v1/tasks')
       @checker.receive([@event])
+      expect(WebMock).to have_requested(:post, "https://a.wunderlist.com/api/v1/tasks")
     end
   end
 

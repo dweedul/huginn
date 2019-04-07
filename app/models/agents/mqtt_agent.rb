@@ -6,8 +6,9 @@ module Agents
     gem_dependency_check { defined?(MQTT) }
 
     description <<-MD
+      The MQTT Agent allows both publication and subscription to an MQTT topic.
+
       #{'## Include `mqtt` in your Gemfile to use this Agent!' if dependencies_missing?}
-      The MQTT agent allows both publication and subscription to an MQTT topic.
 
       MQTT is a generic transport protocol for machine to machine communication.
 
@@ -30,7 +31,7 @@ module Agents
       Example configuration:
 
       <pre><code>{
-        'uri' => 'mqtts://user:pass@locahost:8883'
+        'uri' => 'mqtts://user:pass@localhost:8883'
         'ssl' => :TLSv1,
         'ca_file' => './ca.pem',
         'cert_file' => './client.crt',
@@ -76,12 +77,12 @@ module Agents
     end
 
     def working?
-      event_created_within?(interpolated['expected_update_period_in_days']) && !recent_error_logs?
+      (event_created_within?(interpolated['expected_update_period_in_days']) && !recent_error_logs?) || received_event_without_error?
     end
 
     def default_options
       {
-        'uri' => 'mqtts://user:pass@locahost:8883',
+        'uri' => 'mqtts://user:pass@localhost:8883',
         'ssl' => :TLSv1,
         'ca_file'  => './ca.pem',
         'cert_file' => './client.crt',
@@ -93,22 +94,22 @@ module Agents
     end
 
     def mqtt_client
-      @client ||= MQTT::Client.new(interpolated['uri'])
-
-      if interpolated['ssl']
-        @client.ssl = interpolated['ssl'].to_sym
-        @client.ca_file = interpolated['ca_file']
-        @client.cert_file = interpolated['cert_file']
-        @client.key_file = interpolated['key_file']
+      @client ||= begin
+        MQTT::Client.new(interpolated['uri']).tap do |c|
+          if interpolated['ssl']
+            c.ssl = interpolated['ssl'].to_sym
+            c.ca_file = interpolated['ca_file']
+            c.cert_file = interpolated['cert_file']
+            c.key_file = interpolated['key_file']
+          end
+        end
       end
-
-      @client
     end
 
     def receive(incoming_events)
       mqtt_client.connect do |c|
         incoming_events.each do |event|
-          c.publish(interpolated(event)['topic'], event)
+          c.publish(interpolated(event)['topic'], event.payload['message'])
         end
       end
     end
@@ -116,34 +117,35 @@ module Agents
 
     def check
       last_message = memory['last_message']
+      mqtt_client.connect
 
-      mqtt_client.connect do |c|
-        begin
-          Timeout.timeout((interpolated['max_read_time'].presence || 15).to_i) {
-            c.get_packet(interpolated['topic']) do |packet|
-              topic, payload = message = [packet.topic, packet.payload]
+      poll_thread = Thread.new do
+        mqtt_client.get_packet(interpolated['topic']) do |packet|
+          topic, payload = message = [packet.topic, packet.payload]
 
-              # Ignore a message if it is previously received
-              next if (packet.retain || packet.duplicate) && message == last_message
+          # Ignore a message if it is previously received
+          next if (packet.retain || packet.duplicate) && message == last_message
 
-              last_message = message
+          last_message = message
 
-              # A lot of services generate JSON, so try that.
-              begin
-                payload = JSON.parse(payload)
-              rescue
-              end
+          # A lot of services generate JSON, so try that.
+          begin
+            payload = JSON.parse(payload)
+          rescue
+          end
 
-              create_event payload: {
-                'topic' => topic,
-                'message' => payload,
-                'time' => Time.now.to_i
-              }
-            end
+          create_event payload: {
+            'topic' => topic,
+            'message' => payload,
+            'time' => Time.now.to_i
           }
-        rescue Timeout::Error
         end
       end
+
+      sleep (interpolated['max_read_time'].presence || 15).to_f
+
+      mqtt_client.disconnect
+      poll_thread.kill
 
       # Remember the last original (non-retain, non-duplicate) message
       self.memory['last_message'] = last_message
